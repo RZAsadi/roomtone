@@ -12,8 +12,16 @@ REPO_URL="${ROOMTONE_REPO:-https://github.com/RZAsadi/roomtone.git}"
 DOMAIN="${1:-}"
 
 if [[ "${EUID}" -ne 0 ]]; then
-  echo "Please run as root: sudo bash install.sh [your-domain]" >&2
-  exit 1
+  if ! command -v sudo >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+    echo "Run this installer as root, or install sudo and curl first." >&2
+    exit 1
+  fi
+  SELF_URL="https://raw.githubusercontent.com/RZAsadi/roomtone/main/install.sh"
+  SELF_COPY="$(mktemp)"
+  trap 'rm -f "${SELF_COPY}"' EXIT
+  curl -fsSL "${SELF_URL}" -o "${SELF_COPY}"
+  sudo bash "${SELF_COPY}" "$@"
+  exit $?
 fi
 
 if [[ ! -r /etc/os-release ]]; then
@@ -64,10 +72,10 @@ cp "${TMP_DIR}/repo/app.py" "${APP_DIR}/app.py"
 cp "${TMP_DIR}/repo/requirements.txt" "${APP_DIR}/requirements.txt"
 chown "${APP_NAME}:${APP_NAME}" "${APP_DIR}/app.py" "${APP_DIR}/requirements.txt"
 if [[ ! -x "${APP_DIR}/venv/bin/python" ]]; then
-  sudo -u "${APP_NAME}" python3 -m venv "${APP_DIR}/venv"
+  runuser -u "${APP_NAME}" -- python3 -m venv "${APP_DIR}/venv"
 fi
-sudo -u "${APP_NAME}" "${APP_DIR}/venv/bin/pip" install --upgrade pip
-sudo -u "${APP_NAME}" "${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
+runuser -u "${APP_NAME}" -- "${APP_DIR}/venv/bin/pip" install --upgrade pip
+runuser -u "${APP_NAME}" -- "${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
 
 cat > "${SERVICE_FILE}" <<EOF
 [Unit]
