@@ -257,6 +257,17 @@ install_or_update() {
   # exists (for example after a failed/root-run deployment). SQLite creates
   # roomtone.db in this directory, so explicitly repair directory ownership.
   chown "$APP_NAME:$APP_NAME" "$APP_DIR"
+  # An existing database can retain root-only ownership even after the parent
+  # directory is repaired. Preserve its contents and mode, but let the service
+  # account open and update it. Never follow a database symlink here.
+  if [[ -f "$APP_DIR/roomtone.db" && ! -L "$APP_DIR/roomtone.db" ]]; then
+    chown "$APP_NAME:$APP_NAME" "$APP_DIR/roomtone.db"
+  fi
+  for sqlite_sidecar in "$APP_DIR/roomtone.db-wal" "$APP_DIR/roomtone.db-shm"; do
+    if [[ -f "$sqlite_sidecar" && ! -L "$sqlite_sidecar" ]]; then
+      chown "$APP_NAME:$APP_NAME" "$sqlite_sidecar"
+    fi
+  done
   install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/app.py" "$TMP_DIR/stage-app.py"
   # TMP_DIR is created by root with mode 0700, so the service account cannot
   # traverse it even if a staged file inside is owned by that account. Keep

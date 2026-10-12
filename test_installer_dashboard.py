@@ -194,6 +194,9 @@ class InstallerDashboardTests(unittest.TestCase):
         self.assertIn("ProtectSystem=strict", source)
         self.assertIn("ReadWritePaths=$APP_DIR", source)
         self.assertIn('chown "$APP_NAME:$APP_NAME" "$APP_DIR"', source)
+        self.assertIn('chown "$APP_NAME:$APP_NAME" "$APP_DIR/roomtone.db"', source)
+        self.assertIn('[[ -f "$APP_DIR/roomtone.db" && ! -L "$APP_DIR/roomtone.db" ]]', source)
+        self.assertIn("ReadWritePaths=/opt/roomtone", (ROOT / "roomtone.service.example").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
