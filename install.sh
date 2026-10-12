@@ -161,7 +161,7 @@ read_existing_domain() {
 
 
 write_caddy_candidate() {
-  local block="$TMP_DIR/roomtone-site" expected_legacy
+  local block="$TMP_DIR/roomtone-site" expected_legacy expected_unmarked
   cat > "$block" <<EOF
 # BEGIN RoomTone managed site
 $DOMAIN {
@@ -185,9 +185,18 @@ EOF
     [[ "$(cat /etc/caddy/Caddyfile)" == "$expected_legacy" ]] || die "The legacy managed Caddyfile has additional edits. Back it up and merge the RoomTone site block manually before updating."
     cp "$block" "$TMP_DIR/Caddyfile"
   else
-    cp /etc/caddy/Caddyfile "$TMP_DIR/Caddyfile"
-    printf '\n' >> "$TMP_DIR/Caddyfile"
-    cat "$block" >> "$TMP_DIR/Caddyfile"
+    # Safely adopt the exact previous/manual single-site template. Do not append
+    # a second block for the same domain, and do not rewrite customized files.
+    expected_unmarked="$(printf '%s {\n    encode zstd gzip\n    reverse_proxy 127.0.0.1:8000\n}' "$DOMAIN")"
+    if [[ "$(cat /etc/caddy/Caddyfile)" == "$expected_unmarked" ]]; then
+      cp "$block" "$TMP_DIR/Caddyfile"
+    elif grep -Eq "^[[:space:]]*${DOMAIN//./\\.}[[:space:]]*\\{" /etc/caddy/Caddyfile; then
+      die "Caddyfile already defines $DOMAIN outside the RoomTone managed block. The existing file was preserved; merge the RoomTone site into that block or back up and remove the duplicate before retrying."
+    else
+      cp /etc/caddy/Caddyfile "$TMP_DIR/Caddyfile"
+      printf '\n' >> "$TMP_DIR/Caddyfile"
+      cat "$block" >> "$TMP_DIR/Caddyfile"
+    fi
   fi
   caddy validate --config "$TMP_DIR/Caddyfile"
 }

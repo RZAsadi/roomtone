@@ -177,6 +177,12 @@ class InstallerDashboardTests(unittest.TestCase):
         self.assertIn("sed -i 's/^TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn", source)
         self.assertIn('printf \'\\nTURNSERVER_ENABLED=1\\n\' >> /etc/default/coturn', source)
 
+    def test_caddy_adopts_exact_unmarked_site_and_rejects_duplicate_domain(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('expected_unmarked="$(printf \'%s {\\n    encode zstd gzip\\n    reverse_proxy 127.0.0.1:8000\\n}\' "$DOMAIN")"', source)
+        self.assertIn('if [[ "$(cat /etc/caddy/Caddyfile)" == "$expected_unmarked" ]]; then', source)
+        self.assertIn('Caddyfile already defines $DOMAIN outside the RoomTone managed block', source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
