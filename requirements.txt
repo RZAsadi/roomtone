@@ -1,2 +1,4 @@
 fastapi>=0.115,<1.0
-uvicorn[standard]>=0.30,<1.0
+# Keep to the known-compatible Uvicorn release line. New major/minor lines can
+# change import layout; the installer also smoke-tests the actual ASGI runner.
+uvicorn[standard]>=0.30,<0.36

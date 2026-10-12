@@ -279,6 +279,9 @@ install_or_update() {
   rm -rf -- "$VENV_STAGE" "$VENV_PREVIOUS"
   runuser -u "$APP_NAME" -- python3 -m venv "$VENV_STAGE"
   runuser -u "$APP_NAME" -- "$VENV_STAGE/bin/pip" install -r "$STAGE_REQUIREMENTS"
+  # A successful pip exit is not sufficient if an incomplete/broken wheel was
+  # installed. Catch import failures before changing the live environment.
+  runuser -u "$APP_NAME" -- "$VENV_STAGE/bin/python" -c 'import uvicorn, uvicorn.config, uvicorn.importer; print("Validated staged Uvicorn", uvicorn.__version__)'
 
   install -d -m 0750 -o root -g "$APP_NAME" /etc/roomtone
   if [[ ! -s "$TURN_ENV" ]]; then
@@ -357,6 +360,7 @@ EOF
   VENV_NEW_STARTED=1
   runuser -u "$APP_NAME" -- python3 -m venv "$APP_DIR/venv"
   runuser -u "$APP_NAME" -- "$APP_DIR/venv/bin/pip" install -r "$STAGE_REQUIREMENTS"
+  runuser -u "$APP_NAME" -- "$APP_DIR/venv/bin/python" -c 'import uvicorn, uvicorn.config, uvicorn.importer; print("Validated production Uvicorn", uvicorn.__version__)'
   install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/app.py" "$APP_DIR/app.py"
   install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/requirements.txt" "$APP_DIR/requirements.txt"
   install -m 0600 "$TMP_DIR/turnserver.conf" /etc/turnserver.conf

@@ -188,6 +188,8 @@ class InstallerDashboardTests(unittest.TestCase):
         self.assertIn('STAGE_REQUIREMENTS="$APP_DIR/.stage-requirements-$$.txt"', source)
         self.assertEqual(source.count('install -r "$STAGE_REQUIREMENTS"'), 2)
         self.assertIn('[[ -z "$STAGE_REQUIREMENTS" ]] || rm -f -- "$STAGE_REQUIREMENTS"', source)
+        self.assertIn('uvicorn[standard]>=0.30,<0.36', (ROOT / "requirements.txt").read_text(encoding="utf-8"))
+        self.assertEqual(source.count("import uvicorn, uvicorn.config, uvicorn.importer"), 2)
 
     def test_service_sandbox_allows_app_database_writes(self):
         source = INSTALLER.read_text(encoding="utf-8")
