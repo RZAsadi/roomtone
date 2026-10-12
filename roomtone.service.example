@@ -1,0 +1,21 @@
+[Unit]
+Description=RoomTone voice chat
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=roomtone
+Group=roomtone
+WorkingDirectory=/opt/roomtone
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/roomtone/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

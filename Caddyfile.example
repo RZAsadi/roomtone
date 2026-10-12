@@ -1,0 +1,5 @@
+# Replace voice.example.com with a domain whose DNS A record points to this VPS.
+voice.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8000
+}
