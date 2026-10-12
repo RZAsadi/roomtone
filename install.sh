@@ -85,7 +85,17 @@ if [[ ! -s "${TURN_SECRET_FILE}" ]]; then
   printf 'ROOMTONE_TURN_DOMAIN=%s\nROOMTONE_TURN_SECRET=%s\n' "${DOMAIN}" "${TURN_SECRET}" > "${TURN_SECRET_FILE}"
   chown root:"${APP_NAME}" "${TURN_SECRET_FILE}"
   chmod 0640 "${TURN_SECRET_FILE}"
+else
+  # Preserve the shared secret while keeping the advertised TURN hostname in sync.
+  if grep -q '^ROOMTONE_TURN_DOMAIN=' "${TURN_SECRET_FILE}"; then
+    sed -i "s/^ROOMTONE_TURN_DOMAIN=.*/ROOMTONE_TURN_DOMAIN=${DOMAIN}/" "${TURN_SECRET_FILE}"
+  else
+    printf 'ROOMTONE_TURN_DOMAIN=%s\n' "${DOMAIN}" >> "${TURN_SECRET_FILE}"
+  fi
 fi
+# Reassert permissions on both fresh and pre-existing secret files.
+chown root:"${APP_NAME}" "${TURN_SECRET_FILE}"
+chmod 0640 "${TURN_SECRET_FILE}"
 TURN_SECRET="$(sed -n 's/^ROOMTONE_TURN_SECRET=//p' "${TURN_SECRET_FILE}" | head -n1)"
 if [[ -z "${TURN_SECRET}" ]]; then echo "Could not read TURN secret." >&2; exit 1; fi
 printf 'TURNSERVER_ENABLED=1\n' > /etc/default/coturn
@@ -103,6 +113,8 @@ min-port=49160
 max-port=49200
 listening-ip=0.0.0.0
 EOF
+# The coturn configuration contains the shared TURN authentication secret.
+chmod 0600 /etc/turnserver.conf
 
 cat > "${SERVICE_FILE}" <<EOF
 [Unit]
