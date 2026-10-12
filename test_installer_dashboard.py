@@ -183,6 +183,12 @@ class InstallerDashboardTests(unittest.TestCase):
         self.assertIn('if [[ "$(cat /etc/caddy/Caddyfile)" == "$expected_unmarked" ]]; then', source)
         self.assertIn('Caddyfile already defines $DOMAIN outside the RoomTone managed block', source)
 
+    def test_pip_requirements_staging_is_accessible_to_service_account(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('STAGE_REQUIREMENTS="$APP_DIR/.stage-requirements-$$.txt"', source)
+        self.assertEqual(source.count('install -r "$STAGE_REQUIREMENTS"'), 2)
+        self.assertIn('[[ -z "$STAGE_REQUIREMENTS" ]] || rm -f -- "$STAGE_REQUIREMENTS"', source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

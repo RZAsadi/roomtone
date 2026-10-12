@@ -17,6 +17,7 @@ TMP_DIR=""
 BACKUP_DIR=""
 VENV_STAGE=""
 VENV_PREVIOUS=""
+STAGE_REQUIREMENTS=""
 VENV_NEW_STARTED=0
 TRANSACTION_ACTIVE=0
 UNINSTALL_ACTIVE=0
@@ -85,6 +86,7 @@ restore_transaction() {
 cleanup() {
   local status=$?
   trap - EXIT
+  [[ -z "$STAGE_REQUIREMENTS" ]] || rm -f -- "$STAGE_REQUIREMENTS"
   if [[ -n "$VENV_PREVIOUS" && -d "$VENV_PREVIOUS" ]]; then
     rm -rf -- "$APP_DIR/venv"
     mv "$VENV_PREVIOUS" "$APP_DIR/venv"
@@ -252,12 +254,16 @@ install_or_update() {
 
   install -d -o "$APP_NAME" -g "$APP_NAME" "$APP_DIR"
   install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/app.py" "$TMP_DIR/stage-app.py"
-  install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/requirements.txt" "$TMP_DIR/stage-requirements.txt"
+  # TMP_DIR is created by root with mode 0700, so the service account cannot
+  # traverse it even if a staged file inside is owned by that account. Keep
+  # requirements in the app-owned directory while pip runs as RoomTone.
+  STAGE_REQUIREMENTS="$APP_DIR/.stage-requirements-$$.txt"
+  install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/requirements.txt" "$STAGE_REQUIREMENTS"
   VENV_STAGE="$APP_DIR/.venv-stage-$$"
   VENV_PREVIOUS="$APP_DIR/.venv-previous-$$"
   rm -rf -- "$VENV_STAGE" "$VENV_PREVIOUS"
   runuser -u "$APP_NAME" -- python3 -m venv "$VENV_STAGE"
-  runuser -u "$APP_NAME" -- "$VENV_STAGE/bin/pip" install -r "$TMP_DIR/stage-requirements.txt"
+  runuser -u "$APP_NAME" -- "$VENV_STAGE/bin/pip" install -r "$STAGE_REQUIREMENTS"
 
   install -d -m 0750 -o root -g "$APP_NAME" /etc/roomtone
   if [[ ! -s "$TURN_ENV" ]]; then
@@ -334,7 +340,7 @@ EOF
   # staged environment above, then recreate/install at the final stable path.
   VENV_NEW_STARTED=1
   runuser -u "$APP_NAME" -- python3 -m venv "$APP_DIR/venv"
-  runuser -u "$APP_NAME" -- "$APP_DIR/venv/bin/pip" install -r "$TMP_DIR/stage-requirements.txt"
+  runuser -u "$APP_NAME" -- "$APP_DIR/venv/bin/pip" install -r "$STAGE_REQUIREMENTS"
   install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/app.py" "$APP_DIR/app.py"
   install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/requirements.txt" "$APP_DIR/requirements.txt"
   install -m 0600 "$TMP_DIR/turnserver.conf" /etc/turnserver.conf
