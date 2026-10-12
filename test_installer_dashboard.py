@@ -189,6 +189,11 @@ class InstallerDashboardTests(unittest.TestCase):
         self.assertEqual(source.count('install -r "$STAGE_REQUIREMENTS"'), 2)
         self.assertIn('[[ -z "$STAGE_REQUIREMENTS" ]] || rm -f -- "$STAGE_REQUIREMENTS"', source)
 
+    def test_service_sandbox_allows_app_database_writes(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("ProtectSystem=strict", source)
+        self.assertIn("ReadWritePaths=$APP_DIR", source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
