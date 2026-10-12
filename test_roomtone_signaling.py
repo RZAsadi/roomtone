@@ -12,6 +12,10 @@ import urllib.error
 import urllib.request
 
 import websockets
+if int(websockets.__version__.split(".", 1)[0]) >= 14:
+    from websockets.exceptions import InvalidStatus as WebSocketHandshakeError
+else:  # the legacy client used by websockets < 14 raises this exact class
+    from websockets.legacy.exceptions import InvalidStatusCode as WebSocketHandshakeError
 
 
 def free_port():
@@ -152,10 +156,11 @@ class RoomToneSignalingTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("password", denied["message"].lower())
 
         # A mismatched browser Origin must be rejected before the socket joins a room.
-        with self.assertRaises(websockets.exceptions.InvalidStatus):
+        # The public exception class changed between websockets generations.
+        with self.assertRaises(WebSocketHandshakeError):
             async with websockets.connect(uri, origin="https://attacker.example"):
                 self.fail("cross-origin WebSocket unexpectedly connected")
-        with self.assertRaises(websockets.exceptions.InvalidStatus):
+        with self.assertRaises(WebSocketHandshakeError):
             async with websockets.connect(uri):
                 self.fail("WebSocket without Origin unexpectedly connected")
 

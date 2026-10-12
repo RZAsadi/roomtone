@@ -6,15 +6,16 @@ RoomTone is a browser-based voice-room application built with FastAPI, WebSocket
 
 Use a fresh Ubuntu 22.04 or 24.04 VPS with a public IP address and a domain/subdomain whose DNS points to that IP. Allow TCP ports 80 and 443 in the VPS firewall. The installer configures Caddy to obtain and renew HTTPS certificates automatically.
 
-After the repository is published, the one-line installer will be:
+After the repository is published, download the installer and open its dashboard:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/RZAsadi/roomtone/main/install.sh)
+curl -fsSLO https://raw.githubusercontent.com/RZAsadi/roomtone/main/install.sh
+sudo bash install.sh
 ```
 
-The installer asks for the domain, installs Python, Caddy, and coturn, creates a dedicated service account, configures a systemd service, and enables HTTPS. It generates a private TURN shared secret and places the matching domain/secret into the RoomTone service environment so `/ice-config` can issue time-limited TURN credentials. Without both `ROOMTONE_TURN_DOMAIN` and `ROOMTONE_TURN_SECRET` in the running service environment, `/ice-config` returns STUN-only configuration and TURN relay is not available. Existing `/opt/roomtone/roomtone.db` data is not overwritten by an application update.
+The dashboard offers **Install**, **Update**, **Uninstall**, and **Exit**. It requires root and supports Ubuntu 22.04 and 24.04. Install asks for the domain, installs Python, Caddy, and coturn, creates a dedicated service account, configures systemd, and enables HTTPS. It generates a private TURN shared secret and places the matching domain/secret into the RoomTone service environment so `/ice-config` can issue time-limited TURN credentials. Without both `ROOMTONE_TURN_DOMAIN` and `ROOMTONE_TURN_SECRET` in the running service environment, `/ice-config` returns STUN-only configuration and TURN relay is not available.
 
-The installer is intended for a fresh or deliberately managed Ubuntu VPS: it replaces `/etc/caddy/Caddyfile`, `/etc/turnserver.conf`, and the RoomTone systemd unit. Review those files and back up the current configuration before rerunning it on an existing deployment. It does not migrate the existing application directory as a versioned release.
+You can also run a lifecycle action without the dashboard: `sudo bash install.sh install voice.example.com`, `sudo bash install.sh update`, or `sudo bash install.sh uninstall`. Noninteractive install/update requires `ROOMTONE_CONFIRM=yes`; noninteractive uninstall requires `ROOMTONE_CONFIRM='UNINSTALL ROOMTONE'`. These commands fail clearly when required inputs are missing. The installer creates a root-only timestamped backup under `/var/backups/roomtone` before deployment or removal. Updates preserve the SQLite database and TURN secret. The installer merges its marked site block into an existing `/etc/caddy/Caddyfile` and preserves other sites. It replaces `/etc/turnserver.conf` and the RoomTone systemd unit after backing them up; review local changes before proceeding. It sets `TURNSERVER_ENABLED=1` in `/etc/default/coturn` while preserving unrelated lines in that file. An older unmarked-by-block Caddyfile is migrated only when it exactly matches the previous installer template. Uninstall requires typing `UNINSTALL ROOMTONE` in an interactive terminal and removes the application/database directory after backing it up. It removes the marked Caddy site block while preserving other sites, and removes TURN configuration only when it exactly matches the generated template. `/etc/roomtone/turn.env` is removed only when it contains exactly the two installer-managed TURN entries; edited/additional entries are preserved for manual review. The shared package defaults file `/etc/default/coturn` is left in place on uninstall for manual review, as are edited or unmarked legacy configuration files.
 
 In the VPS provider firewall, allow TCP 80 and 443, TCP/UDP 3478, and UDP 49160–49200. The installer adds the same rules to UFW when UFW is active. The TURN hostname uses the domain entered during installation, so that domain must resolve to the VPS public IP.
 
@@ -55,8 +56,14 @@ Run the room metadata tests and real-Uvicorn WebSocket authorization/lifecycle i
 
 ```bash
 python -m pip install -r requirements.txt
-python -m unittest -v test_roomtone test_roomtone_signaling
+python -m unittest -v test_roomtone test_roomtone_signaling test_client_voice
+python -m unittest -v test_installer_dashboard
+node --test test_client_voice_runtime.js
 ```
+
+The Python tests exercise server-side signaling and authorization. `test_installer_dashboard.py` runs the actual dashboard and CLI dispatch code from a temporary installer copy with host-only guards and destructive lifecycle operations isolated; it does not replace Ubuntu service/lifecycle testing. The Node.js runtime test exercises the embedded negotiation code with a mocked peer connection and controlled offer timing. Neither emulates browser microphone permissions or proves real WebRTC audio delivery; verify a two-client call in browsers after deployment.
+
+Node.js 18 or newer is required for the built-in `node --test` runtime test. The repository does not currently define a separate frontend build, wheel, or application packaging workflow.
 
 Back up the SQLite database before upgrades or manual edits:
 
