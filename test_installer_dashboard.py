@@ -193,6 +193,7 @@ class InstallerDashboardTests(unittest.TestCase):
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertIn("ProtectSystem=strict", source)
         self.assertIn("ReadWritePaths=$APP_DIR", source)
+        self.assertIn('chown "$APP_NAME:$APP_NAME" "$APP_DIR"', source)
 
 
 if __name__ == "__main__":

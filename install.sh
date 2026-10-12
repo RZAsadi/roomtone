@@ -253,6 +253,10 @@ install_or_update() {
   write_caddy_candidate
 
   install -d -o "$APP_NAME" -g "$APP_NAME" "$APP_DIR"
+  # install -d may leave ownership unchanged when the directory already
+  # exists (for example after a failed/root-run deployment). SQLite creates
+  # roomtone.db in this directory, so explicitly repair directory ownership.
+  chown "$APP_NAME:$APP_NAME" "$APP_DIR"
   install -o "$APP_NAME" -g "$APP_NAME" "$TMP_DIR/repo/app.py" "$TMP_DIR/stage-app.py"
   # TMP_DIR is created by root with mode 0700, so the service account cannot
   # traverse it even if a staged file inside is owned by that account. Keep
