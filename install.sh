@@ -137,8 +137,10 @@ ${DOMAIN} {
 EOF
 
 systemctl daemon-reload
-systemctl enable --now roomtone
-systemctl enable --now coturn
+systemctl enable roomtone
+systemctl restart roomtone
+systemctl enable coturn
+systemctl restart coturn
 caddy validate --config /etc/caddy/Caddyfile
 systemctl enable caddy
 systemctl reload-or-restart caddy
