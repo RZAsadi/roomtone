@@ -6,9 +6,14 @@ Run with: venv/Scripts/python.exe -m uvicorn app:app --host 0.0.0.0 --port 8000
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import logging
+import os
 import re
+import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Any
@@ -59,6 +64,31 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="RoomTone Voice Chat", lifespan=lifespan)
+
+
+@app.get("/ice-config")
+async def ice_config() -> dict[str, Any]:
+    """Return short-lived TURN credentials when coturn is configured."""
+    domain = os.getenv("ROOMTONE_TURN_DOMAIN", "").strip()
+    secret = os.getenv("ROOMTONE_TURN_SECRET", "").strip()
+    servers: list[dict[str, Any]] = [
+        {"urls": "stun:stun.l.google.com:19302"},
+        {"urls": "stun:stun.cloudflare.com:3478"},
+    ]
+    if domain and secret:
+        expires = int(time.time()) + 3600
+        username = f"{expires}:roomtone"
+        digest = hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
+        credential = base64.b64encode(digest).decode()
+        servers.append({
+            "urls": [
+                f"turn:{domain}:3478?transport=udp",
+                f"turn:{domain}:3478?transport=tcp",
+            ],
+            "username": username,
+            "credential": credential,
+        })
+    return {"iceServers": servers}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -154,7 +184,7 @@ PAGE = r'''<!doctype html>
 <p class="foot">Audio is peer-to-peer · Allow microphone access to join the conversation</p></main>
 <script>
 const $=id=>document.getElementById(id);const state={ws:null,id:null,room:'',name:'',stream:null,muted:false,audioEnabled:true,peers:new Map(),connecting:false};
-const PeerConnection=window.RTCPeerConnection||window.webkitRTCPeerConnection;const MediaStreamCtor=window.MediaStream;const rtcConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}]};
+const PeerConnection=window.RTCPeerConnection||window.webkitRTCPeerConnection;const MediaStreamCtor=window.MediaStream;let rtcConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}]};
 function say(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error)}
 function send(data){if(state.ws&&state.ws.readyState===WebSocket.OPEN)state.ws.send(JSON.stringify(data))}
 function initials(name){return name.trim().split(/\s+/).slice(0,2).map(s=>s[0]||'').join('').toUpperCase()||'?'}
@@ -165,7 +195,7 @@ function createPeer(id,name,initiator){let peer=state.peers.get(id);if(peer)retu
 function dropPeer(id){const p=state.peers.get(id);if(!p)return;p.pc.ontrack=null;p.pc.close();if(p.audio){p.audio.srcObject=null;p.audio.remove()}state.peers.delete(id);drawPeople()}
 async function flushCandidates(p){for(const candidate of p.pendingCandidates.splice(0)){try{await p.pc.addIceCandidate(candidate)}catch(err){console.warn('Could not add queued ICE candidate',err)}}}
 async function handleMessage(m){switch(m.type){case'joined':state.id=m.id;$('joinView').classList.add('hidden');$('roomView').style.display='block';$('roomTitle').textContent='# '+state.room;setConnection('In the room',true);for(const p of m.peers)createPeer(p.id,p.name,true);drawPeople();say('Microphone connected. Say hello!');break;case'peer-joined':createPeer(m.id,m.name,false);say(`${m.name} joined the room.`);break;case'offer':{const p=createPeer(m.from,m.name,false);if(!p.pc)return;await p.pc.setRemoteDescription(m.sdp);await flushCandidates(p);const answer=await p.pc.createAnswer();await p.pc.setLocalDescription(answer);send({type:'answer',to:m.from,sdp:p.pc.localDescription});break}case'answer':{const p=state.peers.get(m.from);if(p?.pc){await p.pc.setRemoteDescription(m.sdp);await flushCandidates(p)}break}case'ice':{const p=state.peers.get(m.from);if(p?.pc&&m.candidate){if(p.pc.remoteDescription&&p.pc.remoteDescription.type)p.pc.addIceCandidate(m.candidate).catch(err=>console.warn('Could not add ICE candidate',err));else p.pendingCandidates.push(m.candidate)}break}case'mute':{const p=state.peers.get(m.id);if(p){p.muted=m.muted;drawPeople()}break}case'peer-left':{const p=state.peers.get(m.id);dropPeer(m.id);if(p)say(`${p.name} left the room.`);break}case'error':say(m.message,true);break}}
-async function join(e){e.preventDefault();if(state.connecting)return;if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){say('Your phone browser requires HTTPS to use the microphone. Open this room through a secure HTTPS link; a local Wi-Fi HTTP address cannot access the mic.',true);return}state.connecting=true;$('joinBtn').disabled=true;say('Requesting microphone access…');try{state.name=$('displayName').value.trim().slice(0,24)||'Guest';state.room=$('roomName').value.trim().replace(/[^a-zA-Z0-9_-]/g,'').slice(0,32)||'lobby';state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});state.muted=false;const scheme=location.protocol==='https:'?'wss:':'ws:';state.ws=new WebSocket(`${scheme}//${location.host}/signal`);state.ws.onopen=()=>send({type:'join',room:state.room,name:state.name});state.ws.onmessage=async e=>{try{await handleMessage(JSON.parse(e.data))}catch(err){console.error(err);say('A connection error occurred: '+err.message,true)}};state.ws.onerror=()=>say('Could not connect to the server. Check that it is running.',true);state.ws.onclose=()=>{if(state.id)cleanup(false);setConnection('Disconnected');};}catch(err){if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null}say(err.name==='NotAllowedError'?'Microphone permission was denied. Allow access and try again.':err.name==='NotFoundError'?'No microphone was found on this device.':`Could not access microphone: ${err.message}`,true)}finally{state.connecting=false;$('joinBtn').disabled=false}}
+async function join(e){e.preventDefault();if(state.connecting)return;if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){say('Your phone browser requires HTTPS to use the microphone. Open this room through a secure HTTPS link; a local Wi-Fi HTTP address cannot access the mic.',true);return}state.connecting=true;$('joinBtn').disabled=true;say('Requesting microphone access…');try{try{const configResponse=await fetch('/ice-config',{cache:'no-store'});if(configResponse.ok){const config=await configResponse.json();if(Array.isArray(config.iceServers)&&config.iceServers.length)rtcConfig={iceServers:config.iceServers}}}catch(configError){console.warn('Could not load ICE configuration; using public STUN only.',configError)}state.name=$('displayName').value.trim().slice(0,24)||'Guest';state.room=$('roomName').value.trim().replace(/[^a-zA-Z0-9_-]/g,'').slice(0,32)||'lobby';state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});state.muted=false;const scheme=location.protocol==='https:'?'wss:':'ws:';state.ws=new WebSocket(`${scheme}//${location.host}/signal`);state.ws.onopen=()=>send({type:'join',room:state.room,name:state.name});state.ws.onmessage=async e=>{try{await handleMessage(JSON.parse(e.data))}catch(err){console.error(err);say('A connection error occurred: '+err.message,true)}};state.ws.onerror=()=>say('Could not connect to the server. Check that it is running.',true);state.ws.onclose=()=>{if(state.id)cleanup(false);setConnection('Disconnected');};}catch(err){if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null}say(err.name==='NotAllowedError'?'Microphone permission was denied. Allow access and try again.':err.name==='NotFoundError'?'No microphone was found on this device.':`Could not access microphone: ${err.message}`,true)}finally{state.connecting=false;$('joinBtn').disabled=false}}
 function toggleMute(){if(!state.stream)return;state.muted=!state.muted;state.stream.getAudioTracks().forEach(t=>t.enabled=!state.muted);$('muteBtn').textContent=state.muted?'🎙 Unmute':'🎙 Mute';send({type:'mute',muted:state.muted});drawPeople();say(state.muted?'Your microphone is muted.':'Your microphone is live.')}
 function toggleAudio(){state.audioEnabled=!state.audioEnabled;for(const p of state.peers.values())if(p.audio)p.audio.muted=!state.audioEnabled;$('audioBtn').textContent=state.audioEnabled?'🔊 Audio on':'🔇 Audio off';say(state.audioEnabled?'Incoming audio enabled.':'Incoming audio muted for you.')}
 function cleanup(notify=true){if(notify)send({type:'leave'});if(state.ws){const ws=state.ws;state.ws=null;if(ws.readyState===WebSocket.OPEN)ws.close()}for(const id of [...state.peers.keys()])dropPeer(id);if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null}state.id=null;state.room='';state.muted=false;$('roomView').style.display='none';$('joinView').classList.remove('hidden');$('muteBtn').textContent='🎙 Mute';setConnection('Ready to connect');say('You left the room.')}

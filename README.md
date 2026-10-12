@@ -12,7 +12,9 @@ After the repository is published, the one-line installer will be:
 bash <(curl -fsSL https://raw.githubusercontent.com/RZAsadi/roomtone/main/install.sh)
 ```
 
-The installer asks for the domain, installs Python and Caddy, creates a dedicated service account, configures a systemd service, and enables HTTPS.
+The installer asks for the domain, installs Python, Caddy, and coturn, creates a dedicated service account, configures a systemd service, and enables HTTPS. It generates a private TURN shared secret and the app issues time-limited TURN credentials from `/ice-config`.
+
+In the VPS provider firewall, allow TCP 80 and 443, TCP/UDP 3478, and UDP 49160–49200. The installer adds the same rules to UFW when UFW is active. The TURN hostname uses the domain entered during installation, so that domain must resolve to the VPS public IP.
 
 ## Manual install
 
@@ -26,7 +28,7 @@ Put a reverse proxy with HTTPS in front of Uvicorn for microphone access and Web
 
 ## Voice connectivity
 
-WebRTC attempts direct media connectivity using STUN. Some networks require a TURN relay. For those networks, configure an authenticated TURN service and add its ICE server URL and credentials to the browser's `rtcConfig` in `app.py`. Do not operate an unauthenticated public TURN relay.
+WebRTC tries direct media first and uses the locally installed coturn relay when necessary. The app generates time-limited TURN REST credentials; do not expose the shared secret. UDP relay ports must be reachable from the internet for media to flow.
 
 ## Security and limitations
 

@@ -52,7 +52,7 @@ read -r -p "Continue? [y/N] " CONFIRM
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl git python3 python3-venv python3-pip caddy
+apt-get install -y ca-certificates curl git python3 python3-venv python3-pip caddy coturn
 
 if ! id "${APP_NAME}" >/dev/null 2>&1; then
   useradd --system --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_NAME}"
@@ -77,6 +77,33 @@ fi
 runuser -u "${APP_NAME}" -- "${APP_DIR}/venv/bin/pip" install --upgrade pip
 runuser -u "${APP_NAME}" -- "${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
 
+# Generate a shared secret for time-limited TURN REST credentials.
+install -d -m 0750 -o root -g "${APP_NAME}" /etc/roomtone
+TURN_SECRET_FILE="/etc/roomtone/turn.env"
+if [[ ! -s "${TURN_SECRET_FILE}" ]]; then
+  TURN_SECRET="$(openssl rand -hex 32)"
+  printf 'ROOMTONE_TURN_DOMAIN=%s\nROOMTONE_TURN_SECRET=%s\n' "${DOMAIN}" "${TURN_SECRET}" > "${TURN_SECRET_FILE}"
+  chown root:"${APP_NAME}" "${TURN_SECRET_FILE}"
+  chmod 0640 "${TURN_SECRET_FILE}"
+fi
+TURN_SECRET="$(sed -n 's/^ROOMTONE_TURN_SECRET=//p' "${TURN_SECRET_FILE}" | head -n1)"
+if [[ -z "${TURN_SECRET}" ]]; then echo "Could not read TURN secret." >&2; exit 1; fi
+printf 'TURNSERVER_ENABLED=1\n' > /etc/default/coturn
+cat > /etc/turnserver.conf <<EOF
+listening-port=3478
+fingerprint
+use-auth-secret
+static-auth-secret=${TURN_SECRET}
+realm=${DOMAIN}
+total-quota=100
+stale-nonce=600
+no-loopback-peers
+no-multicast-peers
+min-port=49160
+max-port=49200
+listening-ip=0.0.0.0
+EOF
+
 cat > "${SERVICE_FILE}" <<EOF
 [Unit]
 Description=RoomTone voice chat
@@ -89,6 +116,7 @@ User=${APP_NAME}
 Group=${APP_NAME}
 WorkingDirectory=${APP_DIR}
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=${TURN_SECRET_FILE}
 ExecStart=${APP_DIR}/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=3
@@ -110,6 +138,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now roomtone
+systemctl enable --now coturn
 caddy validate --config /etc/caddy/Caddyfile
 systemctl enable caddy
 systemctl reload-or-restart caddy
@@ -117,6 +146,9 @@ systemctl reload-or-restart caddy
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
   ufw allow 80/tcp
   ufw allow 443/tcp
+  ufw allow 3478/tcp
+  ufw allow 3478/udp
+  ufw allow 49160:49200/udp
 fi
 
 echo
@@ -127,4 +159,5 @@ echo "Logs: journalctl -u roomtone -f"
 echo
 echo "DNS must point to this VPS, and TCP ports 80/443 must be allowed by the cloud firewall."
 echo "Caddy will obtain the HTTPS certificate automatically once public DNS and ports are correct."
-echo "Voice uses WebRTC. For networks where direct media is blocked, configure an authenticated TURN server."
+echo "TURN relay is configured on ${DOMAIN}:3478 (UDP/TCP), with media relay UDP ports 49160-49200."
+echo "Also allow TCP 3478, UDP 3478, and UDP 49160-49200 in your VPS provider firewall/security group."
