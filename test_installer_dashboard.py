@@ -191,6 +191,15 @@ class InstallerDashboardTests(unittest.TestCase):
         self.assertIn('uvicorn[standard]>=0.30,<0.36', (ROOT / "requirements.txt").read_text(encoding="utf-8"))
         self.assertEqual(source.count("import uvicorn, uvicorn.config, uvicorn.importer"), 2)
 
+    def test_deployment_waits_for_service_readiness_and_prints_diagnostics(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("for health_attempt in {1..30}; do", source)
+        self.assertIn('healthy=1', source)
+        self.assertIn('http://127.0.0.1:8000/api/rooms', source)
+        self.assertIn('systemctl --no-pager --full status roomtone || true', source)
+        self.assertIn('journalctl -u roomtone -n 80 --no-pager -o cat || true', source)
+        self.assertNotIn('! curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/api/rooms', source)
+
     def test_service_sandbox_allows_app_database_writes(self):
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertIn("ProtectSystem=strict", source)

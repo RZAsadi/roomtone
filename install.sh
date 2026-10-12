@@ -369,8 +369,24 @@ EOF
 
   if ! systemctl daemon-reload || ! systemctl enable roomtone coturn caddy ||
      ! systemctl restart coturn || ! systemctl restart roomtone ||
-     ! caddy validate --config /etc/caddy/Caddyfile || ! systemctl reload-or-restart caddy ||
-     ! curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/api/rooms >/dev/null; then
+     ! caddy validate --config /etc/caddy/Caddyfile || ! systemctl reload-or-restart caddy; then
+    log "Deployment failed; rollback will restore the backed-up files and original service states. Backup: $BACKUP_DIR"
+    return 1
+  fi
+  # Type=simple services are considered started before Uvicorn has necessarily
+  # bound its socket. Poll readiness instead of racing the first listen() call.
+  local health_attempt healthy=0
+  for health_attempt in {1..30}; do
+    if curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8000/api/rooms >/dev/null 2>&1; then
+      healthy=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$healthy" != 1 ]]; then
+    log "RoomTone did not become healthy within 30 seconds. Recent service diagnostics follow:"
+    systemctl --no-pager --full status roomtone || true
+    journalctl -u roomtone -n 80 --no-pager -o cat || true
     log "Deployment failed; rollback will restore the backed-up files and original service states. Backup: $BACKUP_DIR"
     return 1
   fi
